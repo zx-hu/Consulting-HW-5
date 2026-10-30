@@ -38,12 +38,17 @@ ui <- navbarPage(
             h2("How to use"),
             p("Select Time Subdivision: data is available per hour or by daily aggregate"),
             p("Select Date Range"),
+            p("Times Series and Scatterplot use daily data, Demand Patterns is subdivided into hourly data"),
             p("Add markers: see which data points are holidays or working days"),
             p("All weather variables are normalized"),
             h2("TODO/IDEAS (remove later)"),
-            p("Rider Demographic: Casual vs Registered"),
             p("weathersit (not sure what to do with this)"),
-            p("add a legend")
+            p("		- 1: Clear, Few clouds, Partly cloudy, Partly cloudy
+                    - 2: Mist + Cloudy, Mist + Broken clouds, Mist + Few clouds, Mist
+                    - 3: Light Snow, Light Rain + Thunderstorm + Scattered clouds, Light Rain + Scattered clouds
+                    - 4: Heavy Rain + Ice Pallets + Thunderstorm + Mist, Snow + Fog"),
+            p("instead of workingday maybe do the inverse and calculate weekends so its less noise on the plot? idk its just a lot of dots it feels messy"),
+            p("could add a smoothing slider (like 1d -> 4 wks) for the time series if thats a cool factor?")
         )),
     tabPanel(
         "Analysis",
@@ -51,10 +56,6 @@ ui <- navbarPage(
             # Sidebar for input
             sidebarPanel(
                 helpText("Analyze bike usage in the Capital Bikeshare System from 2011-2012"),
-                selectInput("time", "Time subdivision",
-                            choices = c("Hourly" = "hourly", 
-                                        "Daily" = "daily"),
-                            selected = "daily"),
                 checkboxGroupInput("graphpoints",
                             "Add markers to graph",
                             choices = c(
@@ -93,13 +94,21 @@ ui <- navbarPage(
                 ),
                 tabsetPanel(
                     id = "main_tabs",
+
                     tabPanel(
                         "Time Series",
+                        checkboxGroupInput("rider_demographic",
+                            "Split Between Casual & Registered",
+                            choices = c(
+                                "Enable Split" = "split"
+                            ),
+                            selected = NULL 
+                        ),
                         plotlyOutput("time_plot")
                     ),
                     tabPanel(
                         "Scatterplot",
-                        p("TODO: maybe add a color?"),
+                        p("TODO: name the factors better"),
                         selectInput("x",
                             "X axis",
                             choices = c("Temperature" = "temp",
@@ -107,12 +116,17 @@ ui <- navbarPage(
                                         "Humidity" = "hum", 
                                         "Windspeed" = "windspeed")
                         ),
+                        radioButtons("color_by",
+                            "Color by",
+                            choices = c("Season" = "season",
+                                        "Weather" = "weathersit"),
+                        ),
                         plotlyOutput("scatter_plot")
                     ),
                     tabPanel(
                         "Demand Patterns",
-                        p("TODO: make hour only work if hourly is selected / month & season cant both be selected"),
-                        p("also considering putting this on a different page"),
+                        p("TODO: make month & season cant both be selected"),
+                        p("also considering putting this on a different page since it doesnt use the side filters"),
                         selectInput(
                             "heat_x",
                             "Select X-axis variable:",
@@ -137,11 +151,7 @@ ui <- navbarPage(
 server <- function(input, output, session) {
     # refresh data after each input change
     filtered_data <- reactive({
-        data <- if (input$time == "hourly") {
-            hourly
-        } else {
-            daily
-        }
+        data <- daily
 
         start_date <- as.POSIXct(input$date[1])
         end_date <- as.POSIXct(input$date[2] + 1)
@@ -164,37 +174,82 @@ server <- function(input, output, session) {
     # Time Series
     output$time_plot <- renderPlotly({
         p <- ggplot(filtered_data(), aes(x = date, y = cnt)) +
-            geom_line() +
             labs(
+                title = "Daily Bike Rentals",
                 x = "Date",
                 y = "Rentals"
             ) +
-            theme_minimal()
+            theme_minimal()  +
+            theme(
+                legend.position = "bottom"
+            ) +
+            scale_color_manual(
+                name = "Category",
+                values = c(
+                    "Casual" = "#0072B2",
+                    "Registered" = "#D55E00",
+                    "Holiday" = "#E69F00",
+                    "Working Day" = "#009E73"
+                )
+            )
 
-        if (input$time == "daily") {
-            p <- p + labs(title = "Daily Bike Rentals")
-        } else {
-            p <- p + labs(title = "Hourly Bike Rentals")
+        if ("split" %in% input$rider_demographic){
+            p <- p +
+                geom_line(aes(y = casual, color = "Casual")) +
+                geom_line(aes(y = registered, color = "Registered"))
+        }else{
+            p <- p + geom_line()
         }
 
         # Add holiday markers when selected
         if ("holiday" %in% input$graphpoints) {
-        p <- p +
-            geom_point(
-            data = filter(filtered_data(), holiday == 1),
-            color = "#E69F00",
-            size = 2.5
-            )
+            holiday_data <- filter(filtered_data(), holiday == 1)
+            if ("split" %in% input$rider_demographic) {
+                p <- p +
+                    geom_point(
+                        data = holiday_data,
+                        aes(y = casual, color = "Holiday"),
+                        size = 2.5
+                    ) +
+                    geom_point(
+                        data = holiday_data,
+                        aes(y = registered, color = "Holiday"),
+                        size = 2.5
+                    )
+            } else {
+                p <- p +
+                    geom_point(
+                        data = holiday_data,
+                        aes(y = cnt, color = "Holiday"),
+                        size = 2.5
+                    )
+            }
         }
 
         # Add workday markers when selected
         if ("workingday" %in% input$graphpoints) {
-        p <- p +
-            geom_point(
-            data = filter(filtered_data(), workingday == 1),
-            color = "#009E73",
-            size = 2
-            )
+            workingday_data <- filter(filtered_data(), workingday == 1)
+
+            if ("split" %in% input$rider_demographic) {
+                p <- p +
+                    geom_point(
+                        data = workingday_data,
+                        aes(y = casual, color = "Working Day"),
+                        size = 2
+                    ) +
+                    geom_point(
+                        data = workingday_data,
+                        aes(y = registered, color = "Working Day"),
+                        size = 2
+                    )
+            } else {
+                p <- p +
+                    geom_point(
+                        data = workingday_data,
+                        aes(y = cnt, color = "Working Day"),
+                        size = 2
+                    )
+            }
         }
 
         p
@@ -202,7 +257,7 @@ server <- function(input, output, session) {
 
     # Scatter plot
     output$scatter_plot <- renderPlotly({
-        p <- ggplot(filtered_data(), aes(x = .data[[input$x]], y = cnt)) +
+        p <- ggplot(filtered_data(), aes(x = .data[[input$x]], y = cnt, color = factor(.data[[input$color_by]]))) +
             geom_point(size = 2.5, alpha=0.5) +
             labs(
                 x = input$x,
@@ -237,7 +292,7 @@ server <- function(input, output, session) {
 
     # Demand Patterns
     output$heatmap <- renderPlotly({
-        heat_data <- filtered_data() |>
+        heat_data <- hourly |>
             group_by(.data[[input$heat_x]], .data[[input$heat_y]]) |>
             summarise(
             avg_rentals = mean(cnt, na.rm = TRUE),
