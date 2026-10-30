@@ -13,92 +13,175 @@ library(shinythemes)
 library(dplyr)
 library(ggplot2)
 library(plotly)
+library(bslib)
+library(bsicons)
 
-df <- read.csv("bike/hour.csv")
-df$dteday <- as.Date(df$dteday, format = "%Y-%m-%d")
+hourly <- read.csv("./bike/hour.csv")
+hourly$dteday <- as.Date(hourly$dteday, format = "%Y-%m-%d")
+hourly <- hourly |>
+    mutate(date = as.POSIXct(dteday) + hr * 3600)
 
-daily <- df |>
-  group_by(dteday) |>
-  summarise(
-    cnt = sum(cnt),
-    holiday = first(holiday),
-    workingday = first(workingday),
-    .groups = "drop"
-  )
+daily <- read.csv("./bike/day.csv")
+daily$dteday <- as.Date(daily$dteday, format = "%Y-%m-%d")
+daily <- daily |>
+    mutate(date = as.POSIXct(dteday))
 
-# Define UI for application that draws a histogram
-ui <- fluidPage(
-    themeSelector(),
-    # theme = shinytheme("darkly")
-    # Application title
-    titlePanel("Bike Rental Analysis"),
+# Define UI 
+ui <- navbarPage(
+    title="Bike Rental Analysis",
+    # themeSelector(),
+    theme = shinytheme("cerulean"),
 
-    # Sidebar with a slider input for number of bins 
-    sidebarLayout(
-        sidebarPanel(
-            helpText("Create demographic maps with information from the 2010 Census"),
-            checkboxGroupInput("graphpoints",
-                        "Add markers to graph",
-                        choices = c(
-                            "Holidays" = "holiday", 
-                            "Work Days" = "workingday"
-                        ),
-                        selected = NULL 
-            ),
-            dateRangeInput("date",
-                        "Date Range:",
-                        start = min(daily$dteday),
-                        end = max(daily$dteday),
-                        min = min(daily$dteday),
-                        max = max(daily$dteday)
-            )
-        ),
-        # Show a plot of the generated distribution
-        mainPanel(
-            tabsetPanel(
-                id = "main_tabs",
-                tabPanel(
-                    "Time Series",
-                    plotlyOutput("time_plot")
+    # Home page with instructions
+    tabPanel("Home",
+        fluidPage(
+            h2("How to use"),
+            p("Select Time Subdivision: data is available per hour or by daily aggregate"),
+            p("Select Date Range"),
+            p("Add markers: see which data points are holidays or working days"),
+            p("All weather variables are normalized"),
+            h2("TODO/IDEAS (remove later)"),
+            p("Rider Demographic: Casual vs Registered"),
+            p("weathersit (not sure what to do with this)"),
+            p("add a legend")
+        )),
+    tabPanel(
+        "Analysis",
+        sidebarLayout(
+            # Sidebar for input
+            sidebarPanel(
+                helpText("Analyze bike usage in the Capital Bikeshare System from 2011-2012"),
+                selectInput("time", "Time subdivision",
+                            choices = c("Hourly" = "hourly", 
+                                        "Daily" = "daily"),
+                            selected = "daily"),
+                checkboxGroupInput("graphpoints",
+                            "Add markers to graph",
+                            choices = c(
+                                "Holidays" = "holiday", 
+                                "Work Days" = "workingday"
+                            ),
+                            selected = NULL 
                 ),
-                tabPanel(
-                    "Scatterplot",
-                    selectInput("x",
-                        "X axis",
-                        choices = c("temp", "hum", "windspeed")
+                dateRangeInput("date",
+                            "Date Range:",
+                            start = min(daily$dteday),
+                            end = max(daily$dteday),
+                            min = min(daily$dteday),
+                            max = max(daily$dteday)
+                ),
+                actionButton("reset_date", "Reset to Full Range")
+            ),
+            # Main plots
+            mainPanel(
+                layout_columns(
+                    col_widths = c(6, 6),
+                    value_box(
+                        title = "Total Rentals",
+                        value = textOutput("total_count"),
+                        showcase = bs_icon("bicycle"),
+                        theme = "primary",
+                        "Over Selected Date Range"
                     ),
-                    plotlyOutput("scatter_plot")
+                    value_box(
+                        title = "Average Rentals",
+                        value = textOutput("average_count"),
+                        showcase = bs_icon("bicycle"),
+                        theme = "primary",
+                        "Over Selected Date Range & Subdivision"
+                    )
+                ),
+                tabsetPanel(
+                    id = "main_tabs",
+                    tabPanel(
+                        "Time Series",
+                        plotlyOutput("time_plot")
+                    ),
+                    tabPanel(
+                        "Scatterplot",
+                        p("TODO: maybe add a color?"),
+                        selectInput("x",
+                            "X axis",
+                            choices = c("Temperature" = "temp",
+                                        "Feeling Temperature" = "atemp", 
+                                        "Humidity" = "hum", 
+                                        "Windspeed" = "windspeed")
+                        ),
+                        plotlyOutput("scatter_plot")
+                    ),
+                    tabPanel(
+                        "Demand Patterns",
+                        p("TODO: make hour only work if hourly is selected / month & season cant both be selected"),
+                        p("also considering putting this on a different page"),
+                        selectInput(
+                            "heat_x",
+                            "Select X-axis variable:",
+                            choices = c("hr", "weekday", "mnth", "season"),
+                            selected = "mnth"
+                        ),
+
+                        selectInput(
+                            "heat_y",
+                            "Select Y-axis variable:",
+                            choices = c("weekday", "hr", "mnth", "season"),
+                            selected = "weekday"
+                        ),
+                        plotlyOutput("heatmap")
+                    )
                 )
-                
-            )
-        )  
-    ), 
+            )  
+        ), 
+    )
 )
 
+server <- function(input, output, session) {
+    # refresh data after each input change
+    filtered_data <- reactive({
+        data <- if (input$time == "hourly") {
+            hourly
+        } else {
+            daily
+        }
 
-# Define server logic required to draw a histogram
-server <- function(input, output) {
-    output$time_plot <- renderPlotly({
+        start_date <- as.POSIXct(input$date[1])
+        end_date <- as.POSIXct(input$date[2] + 1)
 
-        # Filter the data using the selected date range
-        filtered_daily <- daily |>
+        data |>
             filter(
-                dteday >= input$date[1],
-                dteday <= input$date[2]
+                date >= start_date,
+                date < end_date
             )
-        p <- ggplot(filtered_daily, aes(x = dteday, y = cnt)) +
+    })
+
+    # KPI Cards
+    output$total_count <- renderText({
+        sum(filtered_data()$cnt)
+    })
+    output$average_count <- renderText({
+        mean(filtered_data()$cnt)
+    })
+
+    # Time Series
+    output$time_plot <- renderPlotly({
+        p <- ggplot(filtered_data(), aes(x = date, y = cnt)) +
             geom_line() +
             labs(
-                title = "Daily Bike Rentals (2011–2012)",
-                x = "Date", y = "Daily Rentals"
+                x = "Date",
+                y = "Rentals"
             ) +
             theme_minimal()
+
+        if (input$time == "daily") {
+            p <- p + labs(title = "Daily Bike Rentals")
+        } else {
+            p <- p + labs(title = "Hourly Bike Rentals")
+        }
 
         # Add holiday markers when selected
         if ("holiday" %in% input$graphpoints) {
         p <- p +
             geom_point(
-            data = filter(filtered_daily, holiday == 1),
+            data = filter(filtered_data(), holiday == 1),
             color = "#E69F00",
             size = 2.5
             )
@@ -108,7 +191,7 @@ server <- function(input, output) {
         if ("workingday" %in% input$graphpoints) {
         p <- p +
             geom_point(
-            data = filter(filtered_daily, workingday == 1),
+            data = filter(filtered_data(), workingday == 1),
             color = "#009E73",
             size = 2
             )
@@ -117,24 +200,22 @@ server <- function(input, output) {
         p
     })
 
+    # Scatter plot
     output$scatter_plot <- renderPlotly({
-        # Filter hourly data using the selected date range
-        filtered_df <- df |>
-            filter(
-                dteday >= input$date[1],
-                dteday <= input$date[2]
-            )
-
-        p <- ggplot(filtered_df, aes_string(x=input$x, y="cnt")) +
+        p <- ggplot(filtered_data(), aes(x = .data[[input$x]], y = cnt)) +
             geom_point(size = 2.5, alpha=0.5) +
+            labs(
+                x = input$x,
+                y = "Bike Rentals"
+            ) +
             theme_minimal()
 
         # Add holiday markers only when selected
         if ("holiday" %in% input$graphpoints) {
             p <- p +
                 geom_point(
-                    data = filter(filtered_df, holiday == 1),
-                    aes_string(x = input$x, y = "cnt"),
+                    data = filter(filtered_data(), holiday == 1),
+                    aes(x = .data[[input$x]], y = cnt),
                     color = "#E69F00",
                     size = 2.5
                 )
@@ -144,14 +225,44 @@ server <- function(input, output) {
         if ("workingday" %in% input$graphpoints) {
             p <- p +
                 geom_point(
-                    data = filter(filtered_df, workingday == 1),
-                    aes_string(x = input$x, y = "cnt"),
+                    data = filter(filtered_data(), workingday == 1),
+                    aes(x = .data[[input$x]], y = cnt),
                     color = "#009E73",
-                    size = 2.5
+                    size = 2
                 )
         }
 
         p
+    })
+
+    # Demand Patterns
+    output$heatmap <- renderPlotly({
+        heat_data <- filtered_data() |>
+            group_by(.data[[input$heat_x]], .data[[input$heat_y]]) |>
+            summarise(
+            avg_rentals = mean(cnt, na.rm = TRUE),
+            .groups = "drop"
+            )
+        p <- ggplot(heat_data, aes(x=.data[[input$heat_x]], y=.data[[input$heat_y]], fill=avg_rentals)) +
+            geom_tile() + 
+            labs(
+                title = "Average Bike Rentals Heat Map",
+                x = input$heat_x,
+                y = input$heat_y
+            ) +
+            theme_minimal()
+
+        p
+    })
+
+    # Reset Date Button
+    observeEvent(input$reset_date, {
+    updateDateRangeInput(
+        session,
+        "date",
+        start = min(daily$dteday),
+        end = max(daily$dteday)
+    )
     })
 }
 
