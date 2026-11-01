@@ -125,21 +125,31 @@ ui <- page_navbar(
 
     # Home page with instructions
     nav_panel("Home",
-        h3("About the Data"),
-        p("Daily and hourly Capital Bikeshare rentals in Washington, D.C. (2011-2012), with weather and calendar details. ",
-          a("UCI dataset", href = "https://archive.ics.uci.edu/dataset/275/bike+sharing+dataset", target = "_blank")),        h3("How to Use"),
-        tags$ul(
-            tags$li(strong("Daily Analysis: "), "daily rentals over time and vs. weather.",
+        fluidRow(
+            # Left: text
+            column(8,
+                h3("About the Data"),
+                p("Daily and hourly Capital Bikeshare rentals in Washington, D.C. (2011-2012), with weather and calendar details. ",
+                  a("UCI dataset", href = "https://archive.ics.uci.edu/dataset/275/bike+sharing+dataset", target = "_blank")),
+                h3("How to Use"),
                 tags$ul(
-                    tags$li(em("Left sidebar:"), " pick a date range, and mark holidays (red) or work days."),
-                    tags$li(em("Time Series:"), " split casual vs. registered riders, and smooth with a rolling average."),
-                    tags$li(em("Scatterplot:"), " choose a weather metric, and color by season or weather.")
+                    tags$li(strong("Daily Analysis: "), "daily rentals over time and vs. weather.",
+                        tags$ul(
+                            tags$li(em("Left sidebar:"), " pick a date range, and mark holidays (red) or work days."),
+                            tags$li(em("Time Series:"), " split casual vs. registered riders, and smooth with a rolling average."),
+                            tags$li(em("Scatterplot:"), " choose a weather metric, and color by season or weather.")
+                        )
+                    ),
+                    tags$li(strong("Demand Patterns: "), "average hourly rentals as a heatmap.",
+                        tags$ul(
+                            tags$li(em("Left sidebar:"), " choose the X and Y variables (hour, day, month, or season).")
+                        )
+                    )
                 )
             ),
-            tags$li(strong("Demand Patterns: "), "average hourly rentals as a heatmap.",
-                tags$ul(
-                    tags$li(em("Left sidebar:"), " choose the X and Y variables (hour, day, month, or season).")
-                )
+            # Right: image (fills its column, shrinks on small screens)
+            column(4,
+                img(src = "image.jpeg", width = "90%", alt = "Cyclist riding past the White House")
             )
         )
     ),
@@ -160,7 +170,7 @@ ui <- page_navbar(
                 value = textOutput("average_count"),
                 showcase = bs_icon("bicycle"),
                 theme = "primary",
-                "Over Selected Date Range & Subdivision"
+                "Over Selected Date Range"
             )
         ),
         navset_card_tab(
